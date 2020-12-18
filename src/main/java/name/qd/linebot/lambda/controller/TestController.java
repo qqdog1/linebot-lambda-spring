@@ -1,11 +1,19 @@
 package name.qd.linebot.lambda.controller;
 
+import java.net.MalformedURLException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
 import javax.annotation.PostConstruct;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -15,6 +23,7 @@ import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.linecorp.bot.client.LineMessagingClient;
 import com.linecorp.bot.model.ReplyMessage;
@@ -44,6 +53,7 @@ public class TestController {
         .configure(DeserializationFeature.READ_DATE_TIMESTAMPS_AS_NANOSECONDS, false);
 		
 		restTemplate = new RestTemplate();
+		restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
 	}
 	
 	@RequestMapping(value = "", method = RequestMethod.POST)
@@ -51,9 +61,14 @@ public class TestController {
 		MessageEvent<TextMessageContent> event = parseToTextMessageContent(text);
 		
 		if(event != null) {
-			String lambdaResult = sendToLambda(event.getMessage().getText());
-			if(lambdaResult != "") {
-				sendReply(event.getReplyToken(), lambdaResult);
+			String lambdaResult;
+			try {
+				lambdaResult = sendToLambda(event.getMessage().getText());
+				if(lambdaResult != "") {
+					sendReply(event.getReplyToken(), lambdaResult);
+				}
+			} catch (MalformedURLException | URISyntaxException e) {
+				logger.error("Call lambda failed.", e);
 			}
 		}
 		
@@ -83,8 +98,11 @@ public class TestController {
 		return null;
 	}
 	
-	private String sendToLambda(String text) {
-		return restTemplate.postForObject(LAMBDA_ENTRY_URL, text, String.class);
+	private String sendToLambda(String text) throws MalformedURLException, URISyntaxException {
+		ObjectNode node = objectMapper.createObjectNode();
+		node.put("data", text);
+		logger.info("Json: {}", node.toString());
+		return restTemplate.postForObject(LAMBDA_ENTRY_URL, node.toString(), String.class);
 	}
 	
 	private void sendReply(String replyToken, String message) {
